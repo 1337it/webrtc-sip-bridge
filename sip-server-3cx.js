@@ -256,32 +256,70 @@ class CallSession {
 
     async connectToKandy() {
         try {
-            // Get Kandy access token
-            if (!kandyAuth) {
-                kandyAuth = await authenticateWithKandy(SIP_CONFIG.kandy);
+            log('info', 'Authenticating with Kandy', { sessionId: this.sessionId });
+
+            // Step 1: Subscribe to services (this authenticates and gets token)
+            const response = await fetch('https://ct-webrtc.etisalat.ae/v2.0/subscription', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: SIP_CONFIG.kandy.username,
+                    password: SIP_CONFIG.kandy.password,
+                    service: ['call', 'IM', 'Presence', 'MWI']
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Subscription failed: ${response.status} - ${errorText}`);
             }
 
-            const wsUrl = `${BRIDGE_CONFIG.kandy.websocketServer}?access_token=${kandyAuth.accessToken}`;
+            const authData = await response.json();
+            log('info', 'Kandy subscription successful', { 
+                sessionId: this.sessionId,
+                subscriptionId: authData.subscriptionId 
+            });
+
+            // Step 2: Connect WebSocket with subscription token
+            const wsUrl = `wss://ct-webrtc.etisalat.ae?subscriptionId=${authData.subscriptionId}`;
             this.kandyWs = new WebSocket(wsUrl);
 
             return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('WebSocket connection timeout'));
+                }, 10000);
+
                 this.kandyWs.on('open', () => {
-                    log('info', 'Connected to Kandy WebSocket', { callId: this.callId });
+                    clearTimeout(timeout);
+                    log('info', 'Connected to Kandy WebSocket', { sessionId: this.sessionId });
                     this.state = 'kandy-connected';
                     resolve();
                 });
 
                 this.kandyWs.on('error', (error) => {
-                    log('error', 'Kandy WebSocket error', { callId: this.callId, error: error.message });
+                    clearTimeout(timeout);
+                    log('error', 'Kandy WebSocket error', { 
+                        sessionId: this.sessionId, 
+                        error: error.message 
+                    });
                     reject(error);
                 });
 
                 this.kandyWs.on('message', (data) => {
                     this.handleKandyMessage(data);
                 });
+
+                this.kandyWs.on('close', () => {
+                    log('info', 'Kandy WebSocket closed', { sessionId: this.sessionId });
+                });
             });
         } catch (error) {
-            log('error', 'Failed to connect to Kandy', { callId: this.callId, error: error.message });
+            log('error', 'Failed to connect to Kandy', { 
+                sessionId: this.sessionId, 
+                error: error.message 
+            });
             throw error;
         }
     }
