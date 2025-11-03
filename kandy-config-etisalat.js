@@ -6,7 +6,7 @@ const KANDY_ETISALAT_UAE_CONFIG = {
     authentication: {
         subscription: {
             protocol: 'https',
-            server: 'kbs-uae-cim-auth.kandy.io',
+            server: 'ct-webrtc.etisalat.ae',
             port: '443',
             version: 'v2.0',
             expires: 3600,
@@ -14,7 +14,7 @@ const KANDY_ETISALAT_UAE_CONFIG = {
         },
         websocket: {
             protocol: 'wss',
-            server: 'kbs-uae-cim-auth.kandy.io',
+            server: 'ct-webrtc.etisalat.ae',
             port: '443'
         }
     },
@@ -103,7 +103,7 @@ const KANDY_ETISALAT_UAE_CONFIG = {
     pushServer: {
         protocol: 'https',
         port: '443',
-        server: 'kbs-uae-cim-auth.kandy.io',
+        server: 'ct-webrtc.etisalat.ae',
         version: '1'
     },
     pushServices: ['call', 'IM'],
@@ -118,10 +118,10 @@ const KANDY_ETISALAT_UAE_CONFIG = {
 
 const BRIDGE_CONFIG = {
     kandy: {
-        authServer: 'https://kbs-uae-cim-auth.kandy.io:443',
-        websocketServer: 'wss://kbs-uae-cim-auth.kandy.io:443',
+        authServer: 'https://ct-webrtc.etisalat.ae:443',
+        websocketServer: 'wss://ct-webrtc.etisalat.ae:443',
         apiVersion: 'v2.0',
-        ucaasRestUrl: 'https://kbs-uae-cpaas-oauth.kandy.io/rest/version/1/sip-auth',
+        subscriptionUrl: 'https://ct-webrtc.etisalat.ae/v2.0/subscription',
         
         credentials: {
             username: 'YOUR_USERNAME',
@@ -238,30 +238,34 @@ function getKandySDKConfig() {
 }
 
 async function authenticateWithKandy(credentials) {
-    const authUrl = BRIDGE_CONFIG.kandy.ucaasRestUrl;
+    const authUrl = 'https://ct-webrtc.etisalat.ae/v2.0/subscription';
     
     try {
         const response = await fetch(authUrl, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             body: JSON.stringify({
                 username: credentials.username,
-                password: credentials.password
+                password: credentials.password,
+                service: ['call', 'IM', 'Presence', 'MWI']
             })
         });
 
         if (!response.ok) {
-            throw new Error(`Authentication failed: ${response.status}`);
+            const errorText = await response.text();
+            throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
         return {
-            accessToken: data.access_token || data.token,
+            accessToken: data.access_token || data.token || data.subscriptionId,
             refreshToken: data.refresh_token,
             expiresIn: data.expires_in || 3600,
-            tokenType: data.token_type || 'Bearer'
+            tokenType: data.token_type || 'Bearer',
+            subscriptionId: data.subscriptionId
         };
     } catch (error) {
         console.error('Kandy authentication error:', error);
